@@ -5,8 +5,6 @@
 #echo "CONFIG_PACKAGE_luci-app-$OWRT_THEME-config=y" >> .config
 echo "CONFIG_PACKAGE_luci-app-partexp=y" >> .config
 echo "CONFIG_PACKAGE_luci-app-advancedplus=y" >> .config
-echo "CONFIG_PACKAGE_luci-app-kucat-config=y" >> .config
-echo "CONFIG_PACKAGE_luci-theme-kucat=y" >> .config
 #根据源码来修改
 #if [[ $OWRT_URL != *"lede"* ]] ; then
   #增加luci界面
