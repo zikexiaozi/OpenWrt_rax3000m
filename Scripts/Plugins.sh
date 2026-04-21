@@ -13,8 +13,6 @@ git clone --depth=1 --single-branch https://github.com/linkease/nas-packages.git
 git clone --depth=1 --single-branch https://github.com/linkease/nas-packages-luci.git
 git clone https://github.com/sirpdboy/luci-app-partexp.git package/luci-app-partexp
 git clone https://github.com/sirpdboy/luci-app-advancedplus.git package/luci-app-advancedplus
-git clone https://github.com/sirpdboy/luci-app-kucat-config.git package/luci-app-kucat-config
-git clone https://github.com/sirpdboy/luci-theme-kucat.git package/luci-theme-kucat
 #Open Clash
 git clone --depth=1 --single-branch --branch "dev" https://github.com/vernesong/OpenClash.git
 #Pass Wall
