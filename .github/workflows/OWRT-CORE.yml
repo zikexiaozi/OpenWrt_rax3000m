@@ -44,6 +44,29 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
+        
+      - name: 清理磁盘空间
+        run: |
+          # 清理预装软件
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL >/dev/null 2>&1
+
+          # 清理 Docker
+          sudo systemctl stop docker >/dev/null 2>&1 || true
+          sudo rm -rf /var/lib/docker >/dev/null 2>&1
+
+          # 清理 APT 缓存
+          sudo apt-get clean >/dev/null 2>&1
+          sudo apt-get autoremove -y >/dev/null 2>&1
+
+          # 清理大文件
+          sudo rm -rf /usr/local/share/powershell >/dev/null 2>&1
+          sudo rm -rf /usr/local/share/chromium >/dev/null 2>&1
+          sudo rm -rf /usr/local/share/edge >/dev/null 2>&1
+
+          # 清理日志
+          sudo rm -rf /var/log/* >/dev/null 2>&1
+
+
           docker system prune -a -f
           curl -fsSL https://raw.githubusercontent.com/kou/arrow/e49d8ae15583ceff03237571569099a6ad62be32/ci/scripts/util_free_space.sh | bash
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
@@ -58,8 +81,9 @@ jobs:
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
           echo "status=success" >> ${GITHUB_OUTPUT}
-          df -Th
-    
+          echo ">>> 当前磁盘空间"
+          df -hT
+
 
       - name: 初始化值
         run: |
@@ -74,13 +98,17 @@ jobs:
           echo "OWRT_PW=$OWRT_PW" >> $GITHUB_ENV
           echo "OWRT_IP=$OWRT_IP" >> $GITHUB_ENV
 
-      - name: Combine Disks
+      - name: 扩大磁盘空间
         uses: easimon/maximize-build-space@master
         with:
+          remove-dotnet: true
+          remove-android: true
+          remove-haskell: true
+          remove-codeql: true
+          remove-docker-images: true
+          root-reserve-mb: 1024
           swap-size-mb: 1024
           temp-reserve-mb: 100
-          root-reserve-mb: 1024
-
       - name: Checkout
         uses: actions/checkout@main
           
