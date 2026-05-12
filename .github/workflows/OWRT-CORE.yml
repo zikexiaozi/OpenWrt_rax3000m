@@ -45,6 +45,13 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
         
+      - name: 扩容 /tmp 到 4GB
+        run: |
+          # 如果 /tmp 本身就是 tmpfs，它会调整大小；如果不是，它会挂载一个新的
+          sudo mount -t tmpfs -o remount,size=4G /tmp || sudo mount -t tmpfs -o size=4G tmpfs /tmp
+          echo ">>> /tmp 扩容完成"
+          df -hT /tmp
+
       - name: 清理磁盘空间
         run: |
           # 清理预装软件
