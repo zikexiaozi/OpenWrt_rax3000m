@@ -39,14 +39,24 @@ jobs:
     steps:
       - name: Checkout Projects
         uses: actions/checkout@main
-
-      - name: 初始化环境
+        
+      - name: 检查磁盘空间
+        run: |
+          MIN_SPACE=10
+          AVAILABLE=$(df -BG . | tail -1 | awk '{print $4}' | sed 's/G//')
+          if [ -z "$AVAILABLE" ] || [ "$AVAILABLE" -lt "$MIN_SPACE" ]; then
+            echo "错误：磁盘空间不足，可用空间 ${AVAILABLE}G，需至少 ${MIN_SPACE}G"
+            exit 1
+          fi
+          echo "可用磁盘空间：${AVAILABLE}G"
+          
+      - name: 清理磁盘安装环境
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           docker system prune -a -f
           curl -fsSL https://raw.githubusercontent.com/kou/arrow/e49d8ae15583ceff03237571569099a6ad62be32/ci/scripts/util_free_space.sh | bash
-          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /var/lib/docker
           sudo -E apt-get -qq update
           sudo -E apt -yqq purge $(cat $GITHUB_WORKSPACE/Depends.txt | sed -n "2{s/\r$//;p;q}")
           sudo -E apt -yqq full-upgrade
@@ -57,10 +67,14 @@ jobs:
           sudo -E timedatectl set-timezone "Asia/Shanghai"
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
-          echo "status=success" >> ${GITHUB_OUTPUT}
-          df -Th
-    
-
+          # 清理大文件
+          sudo rm -rf /usr/local/share/powershell >/dev/null 2>&1
+          sudo rm -rf /usr/local/share/chromium >/dev/null 2>&1
+          sudo rm -rf /usr/local/share/edge >/dev/null 2>&1
+          # 清理日志
+          sudo rm -rf /var/log/* >/dev/null 2>&1
+          echo ">>> 当前磁盘空间"
+          df -hT
       - name: 初始化值
         run: |
           export OWRT_DATE=$(TZ=UTC-8 date +"%Y.%m.%d_%H.%M.%S")
@@ -74,13 +88,20 @@ jobs:
           echo "OWRT_PW=$OWRT_PW" >> $GITHUB_ENV
           echo "OWRT_IP=$OWRT_IP" >> $GITHUB_ENV
 
-      - name: Combine Disks
+      - name: 扩大磁盘空间
         uses: easimon/maximize-build-space@master
         with:
           swap-size-mb: 1024
           temp-reserve-mb: 100
           root-reserve-mb: 1024
-
+          
+      - name: 扩容 /tmp 到 4GB
+        run: |
+          # 如果 /tmp 本身就是 tmpfs，它会调整大小；如果不是，它会挂载一个新的
+          sudo mount -t tmpfs -o remount,size=4G /tmp || sudo mount -t tmpfs -o size=4G tmpfs /tmp
+          echo ">>> /tmp 扩容完成"
+          df -hT /tmp
+        
       - name: Checkout
         uses: actions/checkout@main
           
