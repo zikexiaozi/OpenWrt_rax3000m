@@ -151,44 +151,6 @@ jobs:
 
           make defconfig
           
-      - name: 启用 ccache
-        run: |
-          cd "$GITHUB_WORKSPACE/openwrt"
-
-          echo "=== 清理之前可能出错的 ccache 配置 ==="
-          # 删除从 '# Enable ccache' 到文件结束的所有行（防重复/出错）
-          sed -i '/# Enable ccache for all builds/,$d' include/toplevel.mk
-
-          echo "=== 追加 ccache 配置 ==="
-          cat >> include/toplevel.mk << 'EOF'
-
-          # Enable ccache for host/toolchain only
-          export CCACHE_DIR=$(TOPDIR)/.ccache
-          export CCACHE_BASEDIR=$(TOPDIR)
-          export CCACHE_COMPRESS=1
-          export CCACHE_SLOPPINESS=time_macros
-
-          # 禁止 ccache 参与 kernel 编译（关键）
-          export CCACHE_NOHASHDIR=1
-          export CCACHE_NODIRECT=1
-          export CCACHE_DISABLE=1
-
-          # 仅在 host/toolchain 阶段启用 ccache
-          ifneq ($(findstring host,$(MAKECMDGOALS)),)
-            export CCACHE_DISABLE=0
-          endif
-          ifneq ($(findstring toolchain,$(MAKECMDGOALS)),)
-            export CCACHE_DISABLE=0
-          endif
-          EOF
-
-          # 顺便再显示最后 15 行确认
-          echo "=== toplevel.mk 最后 15 行 ==="
-          tail -n 15 include/toplevel.mk
-
-          # 强制把文件转成 unix 格式 + 去掉可能的尾随空格
-          sed -i 's/[ \t]*$//' include/toplevel.mk
-          
       - name: Cleanup Toolchain
         run: |
           cd ./owrt
@@ -201,6 +163,98 @@ jobs:
           MAKEFILE_PATH="owrt/feeds/packages/lang/rust/Makefile"
           sed -i 's|	--set=llvm.download-ci-llvm=true |	--set=llvm.download-ci-llvm=false |g' "$MAKEFILE_PATH"
           
+      - name: 获取磁盘增长缓存
+        uses: actions/cache@v4
+        with:
+          path: openwrt/disk-growth.txt
+          key: ${{ env.REPO_PATH }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_MODEL }}-disk-growth
+          
+      - name: 获取磁盘增长动态
+        id: compile
+        run: |
+          # -------------------------
+          # 磁盘增长缓存
+          # -------------------------
+          # 默认最大增长（35GB）
+          DEFAULT_MAX=$((35 * 1024 * 1024 * 1024))
+          if [ -f disk-growth.txt ]; then
+            MAX_GROWTH=$(cat disk-growth.txt)
+            echo "📁 已加载历史磁盘增长值：$(echo $((MAX_GROWTH/1024/1024/1024))) GB"
+          else
+            MAX_GROWTH=$DEFAULT_MAX
+            echo "📁 未找到历史缓存，使用默认最大增长：35GB"
+          fi
+
+          # 记录初始磁盘占用
+          START=$(df -B1 "${GITHUB_WORKSPACE}" | awk 'NR==2{print $3}')
+          # -------------------------
+          # 启动后台监控（双循环）
+          # -------------------------
+          (
+            RUNTIME_MAX=$MAX_GROWTH
+            LAST_OUTPUT_TIME=$(date +%s)
+            INTERVAL=300
+            # 颜色定义
+            RED="\033[31m"
+            GREEN="\033[32m"
+            YELLOW="\033[33m"
+            BLUE="\033[34m"
+            MAGENTA="\033[35m"
+            CYAN="\033[36m"
+            RESET="\033[0m"
+            # 事件循环：监听 build.log
+            tail -F build.log 2>/dev/null | while read -r LINE; do
+              echo "$LINE" > /tmp/last_line
+            done &
+            # -------------------------
+            # 心跳循环
+            # -------------------------
+            STAGE="${CYAN}初始化${RESET}"
+            while true; do
+              NOW=$(date +%s)
+              LINE=$(cat /tmp/last_line 2>/dev/null || echo "")
+              # -------------------------
+              # 阶段识别（根据日志内容）
+              # -------------------------
+              if echo "$LINE" | grep -qE "make\[[0-9]+\].*-C tools/"; then
+                STAGE="${CYAN}Tools (10%)${RESET}"
+              elif echo "$LINE" | grep -qE "make\[[0-9]+\].*-C toolchain/"; then
+                STAGE="${BLUE}Toolchain (25%)${RESET}"
+              elif echo "$LINE" | grep -qE "make\[[0-9]+\].*-C target/linux"; then
+                STAGE="${MAGENTA}Target (45%)${RESET}"
+              elif echo "$LINE" | grep -qE "make\[[0-9]+\].*-C package/"; then
+                STAGE="${YELLOW}Package (70%)${RESET}"
+              elif echo "$LINE" | grep -qE "make\[[0-9]+\].*-C package/install"; then
+                STAGE="${GREEN}Install (90%)${RESET}"
+              fi
+
+              # -------------------------
+              # 磁盘监控
+              # -------------------------
+              USED=$(df -B1 "${GITHUB_WORKSPACE}" | awk 'NR==2{print $3}')
+              DELTA=$((USED - START))
+              if [ $DELTA -gt $RUNTIME_MAX ]; then
+                RUNTIME_MAX=$DELTA
+              fi
+              echo "$RUNTIME_MAX" > /tmp/max_growth_runtime
+              # -------------------------
+              # 定时刷新（每 5 分钟）
+              # -------------------------
+              if [ $((NOW - LAST_OUTPUT_TIME)) -ge $INTERVAL ]; then
+                LAST_OUTPUT_TIME=$NOW
+                PERCENT=$((DELTA * 100 / RUNTIME_MAX))
+                [ $PERCENT -gt 100 ] && PERCENT=100
+                echo -e "${MAGENTA}========== ⏳ 定时刷新 ($(date '+%H:%M:%S'))  ⏳ ==========${RESET}"
+                echo -e "📦 磁盘信息：${CYAN}$(df -h "${GITHUB_WORKSPACE}" | awk 'NR==2{print $3 "/" $2 " used (" $5 ")"}')${RESET}"
+                echo -e "📊 估算进度：${YELLOW}${PERCENT}%${RESET}"
+                echo -e "📌 当前阶段：${STAGE}"
+                echo "-----------------------------------------"
+              fi
+              sleep 1
+            done
+          ) &
+          monitor_pid=$!
+
       - name: Download Packages
         run: |
           cd ./owrt
